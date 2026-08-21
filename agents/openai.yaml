@@ -1,0 +1,4 @@
+interface:
+  display_name: "Film Curator 影视顾问"
+  short_description: "中文个性化影视推荐、周月季度计划、评分学习与统一观影记录管理"
+  default_prompt: "使用 $film-curator 根据我的时间和心情推荐影片，并把结果加入观影计划。"

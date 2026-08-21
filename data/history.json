@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "item_id": "example-watched-film",
+      "title": "燃烧",
+      "watched_date": "2026-07-18",
+      "rating": 9,
+      "comment": "暧昧和空白令人久久不能平静。",
+      "is_example": true
+    }
+  ]
+}

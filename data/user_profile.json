@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "is_example": true,
+  "frequency": "weekly_2",
+  "preferred_genres": ["剧情", "悬疑", "纪录片"],
+  "avoided_genres": ["恐怖"],
+  "narrative_pace": "slow_burn",
+  "desired_mood": ["平静", "引发思考"],
+  "av_preference": ["摄影美学", "音乐氛围"],
+  "favorite_directors": ["王家卫", "是枝裕和"],
+  "favorite_actors": [],
+  "top_films": ["花样年华", "燃烧"],
+  "genre_weights": {"剧情": 0.4, "悬疑": 0.2},
+  "ratings_count": 2,
+  "high_ratings_count": 2,
+  "last_updated": "2026-08-10"
+}

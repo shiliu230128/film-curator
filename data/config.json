@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "app_name": "你的观影记录本",
+  "theme": "fresh-light",
+  "depth_level": "standard",
+  "default_sort": "added_date_desc",
+  "week_starts_monday": true,
+  "field_options": {
+    "genres": ["剧情", "喜剧", "爱情", "悬疑", "犯罪", "科幻", "奇幻", "动画", "纪录片", "惊悚", "家庭", "历史", "战争", "音乐"],
+    "tags": ["高分", "经典", "治愈", "慢燃", "摄影", "女性", "成长", "周末", "下饭"]
+  },
+  "saved_views": []
+}

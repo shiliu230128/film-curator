@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "item_id": "example-watched-film",
+      "title": "燃烧",
+      "strategy": "precise_match",
+      "feedback": "watched",
+      "date": "2026-07-18",
+      "is_example": true
+    }
+  ]
+}
