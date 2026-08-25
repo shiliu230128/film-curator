@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import html
 import json
+import math
 import os
+import re
 import sys
 import tempfile
+import time
 import unicodedata
 import uuid
 from collections import Counter
@@ -34,9 +38,15 @@ PLAN_CAPACITY = {
 }
 
 PLAN_FLEX_RATIO = {"month": 0.2, "season": 0.1}
-METADATA_LOOKUP_TIMEOUT = 4.0
+METADATA_LOOKUP_TIMEOUT = 8.0
 WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
 WIKIPEDIA_SUMMARY_URL = "https://{lang}.wikipedia.org/api/rest_v1/page/summary/{title}"
+DOUBAN_SUGGEST_URL = "https://movie.douban.com/j/subject_suggest"
+DOUBAN_SEARCH_URL = "https://www.douban.com/search"
+DOUBAN_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
 
 # 字段中文化。数据文件里的键名和几类取值默认写成中文，代码内部继续用英文标识符，
 # 翻译只发生在 read_json / write_json 这一道。读取时中英文都认，写出时按
@@ -380,6 +390,107 @@ def _http_json(url: str, params: dict[str, Any]) -> dict[str, Any]:
         return json.load(handle)
 
 
+def _http_text(url: str, params: dict[str, Any], headers: dict[str, str] | None = None) -> str:
+    request = Request(
+        f"{url}?{urlencode(params)}",
+        headers=headers or {"Accept": "text/html", "User-Agent": DOUBAN_USER_AGENT},
+    )
+    with urlopen(request, timeout=METADATA_LOOKUP_TIMEOUT) as handle:
+        return handle.read().decode("utf-8", "replace")
+
+
+# 常见繁简对应表，只处理影视元数据里反复出现的那批词，避免引入外部依赖。
+_TRADITIONAL_TO_SIMPLIFIED: dict[str, str] = {
+    "劇": "剧", "記": "记", "紀": "纪", "錄": "录", "錄影": "录影",
+    "戰爭": "战争", "歷史": "历史", "歷": "历", "傳": "传", "導": "导",
+    "演": "演", "員": "员", "動": "动", "畫": "画", "電": "电", "視": "视",
+    "語": "语", "國": "国", "際": "际", "際": "际", "學": "学", "樂": "乐",
+    "醫": "医", "警": "警", "懸": "悬", "疑": "疑", "驚": "惊", "悚": "悚",
+    "愛": "爱", "情": "情", "喜": "喜", "歡": "欢", "獨": "独", "處": "处",
+    "門": "门", "關": "关", "時": "时", "間": "间", "節": "节", "實": "实",
+    "現": "现", "發": "发", "裏": "里", "裡": "里", "沒": "没", "這": "这",
+    "個": "个", "為": "为", "與": "与", "於": "于", "後": "后", "們": "们",
+    "來": "来", "對": "对", "說": "说", "給": "给", "會": "会", "長": "长",
+    "場": "场", "將": "将", "應": "应", "當": "当", "無": "无", "點": "点",
+    "員": "员", "演": "演", "懸疑": "悬疑", "科幻": "科幻", "動作": "动作",
+    "冒險": "冒险", "奇幻": "奇幻", "恐怖": "恐怖", "驚悚": "惊悚",
+    "家庭": "家庭", "犯罪": "犯罪", "戰爭": "战争", "音樂": "音乐",
+    "歌舞": "歌舞", "武俠": "武侠", "古裝": "古装", "歷史": "历史",
+    "戰爭片": "战争片", "劇情片": "剧情片", "喜劇": "喜剧", "愛情": "爱情",
+    "紀錄片": "纪录片", "紀錄影片": "纪录片", "迷你影集": "迷你剧集",
+    "影集": "剧集", "電視劇": "电视剧", "動畫": "动画", "動漫": "动漫",
+    "搭檔": "搭档", "監獄": "监狱", "黑色": "黑色", "心理": "心理",
+    "青春": "青春", "情節": "情节", "敘事": "叙事", "推理": "推理",
+    "導演": "导演", "主演": "主演", "編劇": "编剧", "法蘭": "法兰",
+    "紀錄": "纪录", "記錄": "记录", "紀錄影片": "纪录片", "紀錄片": "纪录片",
+    "導演": "导演", "蘭": "兰",
+    "達": "达", "維": "维", "納": "纳", "貝": "贝", "爾": "尔",
+    "齊": "齐", "遜": "逊", "庫": "库", "布": "布", "裏": "里",
+    "臺": "台", "灣": "湾", "廣": "广", "東": "东", "寧": "宁",
+    "麗": "丽", "華": "华", "陽": "阳", "錦": "锦", "織": "织",
+    "練": "练", "趙": "赵", "錢": "钱", "孫": "孙", "週": "周",
+}
+
+
+def simplify_chinese(value: Any) -> Any:
+    """把繁体字转成简体，去重去空白；列表逐项处理，非文本原样返回。"""
+    if isinstance(value, list):
+        seen: list[str] = []
+        for entry in value:
+            simplified = simplify_chinese(entry)
+            if isinstance(simplified, str) and simplified and simplified not in seen:
+                seen.append(simplified)
+        return seen
+    if not isinstance(value, str):
+        return value
+    text = unicodedata.normalize("NFKC", value.strip())
+    # 长的词先替换，避免「紀錄」把「紀錄影片」截断成「纪录影片」。
+    for traditional, simplified in sorted(_TRADITIONAL_TO_SIMPLIFIED.items(), key=lambda pair: -len(pair[0])):
+        text = text.replace(traditional, simplified)
+    # 去掉 wikidata 风格的后缀括号注释，如「喜劇電影(日本)」→「喜劇電影」
+    text = re.sub(r"\s*\([^)]*\)\s*$", "", text)
+    return text.strip()
+
+
+# 剧情简介里通常会出现的动作/情节词，用来区分「剧情简介」和「年份+类型的占位描述」。
+_PLOT_HINTS = re.compile(
+    r"(讲述|故事|饰|回到|踏上|寻找|决定|进入|面对|卷入|调查|爱上|组成|相遇|成为|"
+    r"为了|试图|努力|经历|发现|收留|收养|重逢|离别|成长|冒险|追求|守护|揭露|真相|"
+    r"案件|杀害|谋杀|死亡|发现|接受|爱上|离开|来到|开始|结束|放弃|拯救|逃避|隐瞒)"
+)
+
+
+def _is_placeholder_synopsis(text: str | None) -> bool:
+    """判断简介是不是「占位式描述」而非影视剧情。
+
+    历史数据来自维基数据时，会把片名匹配成同名概念实体（医学概念、人名、消歧义页、
+    小说、漫画等），简介就成了「非正常死亡在法医学上指……」这种词条定义。
+    这类占位简介应当被豆瓣的剧情简介覆盖，而不是因为「已有值」就保留。
+    """
+    t = simplify_chinese(text or "").strip()
+    if not t:
+        return False
+    low = t.lower()
+    if any(token in low for token in ("消歧义", "disambiguation", "男性人名", "女性人名", "系列漫画", "漫画系列")):
+        return True
+    # 纯「年份 + 类型」式描述，如「1993年美国电影」「2020年英国电视剧」。
+    if re.fullmatch(r"\d{4}\s*年?[\w\s·\-—]*?(电影|电视剧|動畫|动画|动漫|纪录片|影片|剧集|剧|短片)", t):
+        return True
+    if re.fullmatch(r"\d{4} film by .+", low):
+        return True
+    # 词条定义句式。
+    if any(mark in t for mark in ("是指", "又叫", "在法医学上", "是一种", "讀者会", "讀者會")):
+        return True
+    # 极短占位，如「电影」「电视剧」「日本电影」。
+    if len(t) <= 6:
+        return True
+    # 较短且没有剧情动作词，多半是「年份/类型/导演/小说」式的元信息描述。
+    if len(t) < 40 and not _PLOT_HINTS.search(t):
+        return True
+    return False
+
+
+
 def _claim_values(entity: dict[str, Any], pid: str) -> list[Any]:
     values: list[Any] = []
     for claim in entity.get("claims", {}).get(pid, []):
@@ -615,6 +726,111 @@ def lookup_online_metadata(title: str, year: Any = None) -> dict[str, Any]:
     return metadata
 
 
+def _douban_search_result(title: str, subject_id: str = "", year: Any = None) -> dict[str, Any] | None:
+    """从豆瓣搜索页抓匹配 subject_id 的结果块，返回评分/导演/主演/年份/简介等富信息。"""
+    try:
+        text = _http_text(DOUBAN_SEARCH_URL, {"cat": "1002", "q": title})
+    except (OSError, URLError, HTTPError, TimeoutError, ValueError):
+        return None
+    blocks = re.split(r'<div class="result">', text)[1:]
+    for block in blocks:
+        sid = re.search(r'sid:\s*(\d+)', block)
+        if subject_id and sid and sid.group(1) != subject_id:
+            continue
+        body = html.unescape(re.sub(r"<[^>]+>", " ", block))
+        body = re.sub(r"\s+", " ", body).strip()
+        if not body:
+            continue
+        rating = re.search(r'class="rating_nums">\s*([\d.]+)', block)
+        cast = re.search(r'class="subject-cast">(.*?)</span>', block, re.S)
+        kind = re.search(r"\[([^\]]+)\]", body)
+        summary = re.search(r"<p>(.*?)</p>", block, re.S)
+        result: dict[str, Any] = {}
+        if sid:
+            result["subject_id"] = sid.group(1)
+        if rating:
+            result["douban_rating"] = float(rating.group(1))
+        if kind:
+            label = kind.group(1).strip()
+            if "电视" in label or "剧集" in label:
+                result["content_type"] = "series"
+            elif "纪录" in label:
+                result["content_type"] = "documentary"
+            elif "动画" in label:
+                result["content_type"] = "animation"
+            elif "短片" in label:
+                result["content_type"] = "short"
+        if cast:
+            cast_text = html.unescape(re.sub(r"<[^>]+>", " ", cast.group(1)))
+            parts = [part.strip() for part in re.split(r"\s*/\s*", cast_text) if part.strip()]
+            if parts:
+                original = parts[0]
+                original = re.sub(r"^原名[:：]", "", original).strip()
+                if original and canonical_title(original) != canonical_title(title):
+                    result["title_en"] = simplify_chinese(original)
+                # 末位是 4 位年份；第二位是导演；中间的都算主演。
+                year_parts = [part for part in parts if re.fullmatch(r"\d{4}", part)]
+                if year_parts:
+                    result["year"] = int(year_parts[-1])
+                names = [part for part in parts[1:] if not re.fullmatch(r"\d{4}", part)]
+                if names:
+                    result["director"] = simplify_chinese(names[0])
+                if len(names) > 1:
+                    result["actors"] = simplify_chinese(names[1:])[:8]
+        if summary:
+            result["synopsis"] = simplify_chinese(
+                html.unescape(re.sub(r"<[^>]+>", "", summary.group(1)))
+            )
+        return result
+    return None
+
+
+def _douban_suggest(title: str) -> dict[str, Any] | None:
+    """豆瓣联想接口，稳定返回中文片名、ID、年份、英文名、海报，作为搜索页的兜底。"""
+    try:
+        payload = _http_json(DOUBAN_SUGGEST_URL, {"q": title})
+    except (OSError, URLError, HTTPError, TimeoutError, ValueError):
+        return None
+    results = payload if isinstance(payload, list) else []
+    if not results:
+        return None
+    result: dict[str, Any] = {}
+    for candidate in results:
+        if not isinstance(candidate, dict):
+            continue
+        label = str(candidate.get("title") or "")
+        if not label or canonical_title(label) != canonical_title(title):
+            continue
+        result["subject_id"] = str(candidate.get("id") or "")
+        result["title_en"] = simplify_chinese(candidate.get("sub_title") or "")
+        if str(candidate.get("year") or "").isdigit():
+            result["year"] = int(str(candidate["year"]))
+        poster = str(candidate.get("img") or "")
+        if poster:
+            result["poster_url"] = poster
+        episode = str(candidate.get("episode") or "")
+        if episode.isdigit():
+            result["episode_count"] = int(episode)
+        return result
+    return None
+
+
+def lookup_douban_metadata(title: str, year: Any = None) -> dict[str, Any]:
+    """豆瓣数据源：联想接口锁定 ID，搜索页补评分/导演/主演/简介。"""
+    suggest = _douban_suggest(title) or {}
+    metadata = _douban_search_result(title, str(suggest.get("subject_id") or ""), year) or {}
+    for field in ("subject_id", "title_en", "year", "poster_url", "episode_count"):
+        if not metadata.get(field) and suggest.get(field):
+            metadata[field] = suggest[field]
+    for field in ("title_en", "director", "synopsis"):
+        if metadata.get(field):
+            metadata[field] = simplify_chinese(metadata[field])
+    if "actors" in metadata:
+        metadata["actors"] = simplify_chinese(metadata["actors"])
+    return metadata
+
+
+
 def enrich_record_metadata(record: dict[str, Any]) -> dict[str, Any]:
     item = copy.deepcopy(record or {})
     title = str(item.get("title") or "").strip()
@@ -622,11 +838,11 @@ def enrich_record_metadata(record: dict[str, Any]) -> dict[str, Any]:
         return item
     needs_lookup = any(
         not item.get(field)
-        for field in ("synopsis", "genres", "content_type", "director", "duration_min", "language", "country_region", "release_date", "title_en")
-    )
+        for field in ("synopsis", "genres", "content_type", "director", "duration_min", "language", "country_region", "release_date", "title_en", "douban_rating", "year", "poster_url")
+    ) or _is_placeholder_synopsis(item.get("synopsis"))
     if not needs_lookup:
         return item
-    metadata = lookup_online_metadata(title, item.get("year"))
+    metadata = lookup_douban_metadata(title, item.get("year"))
     if not metadata:
         return item
     for field, value in metadata.items():
@@ -650,6 +866,10 @@ def enrich_record_metadata(record: dict[str, Any]) -> dict[str, Any]:
             if not item.get("year"):
                 item["year"] = value
             continue
+        if field == "douban_rating":
+            if not item.get("douban_rating"):
+                item["douban_rating"] = value
+            continue
         if field == "release_date":
             if not item.get("release_date"):
                 item["release_date"] = value
@@ -658,19 +878,31 @@ def enrich_record_metadata(record: dict[str, Any]) -> dict[str, Any]:
             if not item.get("poster_url"):
                 item["poster_url"] = value
             continue
+        if field == "episode_count":
+            if not item.get("episode_count"):
+                item["episode_count"] = value
+            continue
         if field == "content_type":
             if not item.get("content_type") or item.get("content_type") == "movie":
                 item["content_type"] = value
             continue
-        if field in {"director", "language", "country_region", "synopsis"}:
+        if field == "synopsis":
+            # 简介只要空、或是占位式描述（词条定义/年份+类型），就用豆瓣剧情覆盖。
+            if not item.get("synopsis") or _is_placeholder_synopsis(item.get("synopsis")):
+                item["synopsis"] = value
+            continue
+        if field in {"director", "language", "country_region"}:
             if not item.get(field):
                 item[field] = value
     return item
 
 
 def _metadata_fields_missing(item: dict[str, Any]) -> list[str]:
-    fields = ("synopsis", "genres", "content_type", "director", "duration_min", "language", "country_region", "release_date", "title_en")
-    return [field for field in fields if not item.get(field)]
+    fields = ("synopsis", "genres", "content_type", "director", "duration_min", "language", "country_region", "release_date", "title_en", "douban_rating", "year", "poster_url")
+    missing = [field for field in fields if not item.get(field)]
+    if item.get("synopsis") and _is_placeholder_synopsis(item.get("synopsis")) and "synopsis" not in missing:
+        missing.append("synopsis")
+    return missing
 
 
 def auto_enrich_missing_metadata(data_dir: Path) -> dict[str, Any]:
@@ -681,7 +913,7 @@ def auto_enrich_missing_metadata(data_dir: Path) -> dict[str, Any]:
         "candidatePool": data_dir / "candidate_pool.json",
     }
     updated_files: set[str] = set()
-    checked = updated = 0
+    checked = updated = normalized = 0
     for file_name, path in sources.items():
         payload = read_json(path)
         items = payload.get("items", []) if isinstance(payload, dict) else []
@@ -689,11 +921,24 @@ def auto_enrich_missing_metadata(data_dir: Path) -> dict[str, Any]:
         for index, item in enumerate(items):
             if not isinstance(item, dict) or not str(item.get("title") or "").strip():
                 continue
+            # 先统一已有文本的繁简/中英混杂，再做缺字段补全。
+            for field in ("title_en", "director", "synopsis"):
+                if item.get(field) and item.get(field) != simplify_chinese(item.get(field)):
+                    item[field] = simplify_chinese(item[field])
+                    changed = True
+                    normalized += 1
+            for field in ("genres", "actors"):
+                if item.get(field) and item.get(field) != simplify_chinese(item.get(field)):
+                    item[field] = simplify_chinese(item.get(field))
+                    changed = True
+                    normalized += 1
             missing = _metadata_fields_missing(item)
             if not missing:
                 continue
             checked += 1
             enriched = enrich_record_metadata(item)
+            # 豆瓣对高频请求会限流，节流一下避免批量补全时后半段大面积失败。
+            time.sleep(0.5)
             if enriched != item:
                 items[index] = enriched
                 changed = True
@@ -704,7 +949,7 @@ def auto_enrich_missing_metadata(data_dir: Path) -> dict[str, Any]:
             updated_files.add(file_name)
     if updated_files:
         export_web(data_dir, data_dir.parent / "web" / "data.js")
-    return {"checked": checked, "updated": updated, "updated_files": sorted(updated_files)}
+    return {"checked": checked, "updated": updated, "normalized": normalized, "updated_files": sorted(updated_files)}
 
 
 def split_csv(value: str | None) -> list[str]:
@@ -882,15 +1127,90 @@ def remove_item(data_dir: Path, item_id: str) -> dict[str, Any]:
 
 
 def learn_from_rating(profile: dict[str, Any], item: dict[str, Any], rating: float) -> None:
+    """单条已看记录的评分学习：只累加，不封顶。由 refresh 逐条调用后统一排序。"""
     profile.setdefault("genre_weights", {})
-    delta = 0.2 if rating >= 8 else (-0.2 if rating <= 5 else 0.05)
-    for genre in item.get("genres", []):
-        current = float(profile["genre_weights"].get(genre, 0))
-        profile["genre_weights"][genre] = round(max(-2.0, min(2.0, current + delta)), 2)
+    # 评分越高的片贡献越大；低于 6 分是负信号，把相关标签往下拉。
+    if rating >= 9:
+        delta = 1.0
+    elif rating >= 8:
+        delta = 0.8
+    elif rating >= 7:
+        delta = 0.5
+    elif rating >= 6:
+        delta = 0.2
+    else:
+        delta = -0.5
+    # 用户自己的标签最能反映喜好；没有标签时才退回客观类型（genres），两者不混用。
+    source = item.get("tags") or item.get("genres") or []
+    signal_labels: list[str] = []
+    for label in source:
+        label = simplify_chinese(label)
+        if label and label not in signal_labels:
+            signal_labels.append(label)
+    for genre in signal_labels:
+        profile["genre_weights"][genre] = round(float(profile["genre_weights"].get(genre, 0)) + delta, 3)
     profile["ratings_count"] = int(profile.get("ratings_count", 0)) + 1
     if rating >= 8:
         profile["high_ratings_count"] = int(profile.get("high_ratings_count", 0)) + 1
     profile["last_updated"] = today_iso()
+
+
+def refresh_profile_from_watchlist(data_dir: Path) -> dict[str, Any]:
+    """按当前影单里的全部已看记录重算画像，保证画像和记录库实时一致。
+
+    幂等：先清空由评分推导出来的字段，再逐条重放，重复调用不会翻倍计数。
+    权重 = 评分贡献（高分更多）× 出现次数（log 平滑），高频标签不再和低频标签并列封顶。
+    """
+    ensure_data(data_dir)
+    profile_path = data_dir / "user_profile.json"
+    profile = read_json(profile_path)
+    profile["genre_weights"] = {}
+    profile["ratings_count"] = 0
+    profile["high_ratings_count"] = 0
+    profile["last_updated"] = today_iso()
+    items = read_json(data_dir / "watchlist.json").get("items", [])
+    counted = 0
+    for item in items:
+        if not isinstance(item, dict) or item.get("is_example"):
+            continue
+        if item.get("status") != "watched":
+            continue
+        rating = item.get("user_rating")
+        if rating is None:
+            rating = item.get("work_rating")
+        if rating is None:
+            continue
+        learn_from_rating(profile, item, float(rating))
+        counted += 1
+    # 出现次数用于平滑：两次比一次更有分量，但不会无上限线性涨。
+    weights = profile.get("genre_weights", {})
+    frequency: Counter = Counter()
+    for item in items:
+        if not isinstance(item, dict) or item.get("is_example"):
+            continue
+        if item.get("status") != "watched":
+            continue
+        for label in (item.get("tags") or item.get("genres") or []):
+            label = simplify_chinese(label)
+            if label:
+                frequency[label] += 1
+    for genre, raw in weights.items():
+        count = frequency.get(genre, 1)
+        profile["genre_weights"][genre] = round(raw * (1.0 + math.log(count)), 3)
+    ranked = sorted(
+        profile["genre_weights"].items(),
+        key=lambda pair: (-pair[1], -frequency.get(pair[0], 0), pair[0]),
+    )
+    profile["preferred_genres"] = [genre for genre, weight in ranked if weight > 0][:8]
+    if counted:
+        profile.pop("is_example", None)
+    write_json(profile_path, profile)
+    return {
+        "counted": counted,
+        "preferred_genres": profile["preferred_genres"],
+        "high_ratings_count": profile["high_ratings_count"],
+    }
+
 
 
 def record_preference_evidence(
@@ -1008,10 +1328,7 @@ def complete_item(
     write_json(history_path, history)
 
     if rating is not None:
-        profile_path = data_dir / "user_profile.json"
-        profile = read_json(profile_path)
-        learn_from_rating(profile, item, rating)
-        write_json(profile_path, profile)
+        refresh_profile_from_watchlist(data_dir)
 
     log_path = data_dir / "recommend_log.json"
     log = read_json(log_path)
@@ -1718,7 +2035,26 @@ def import_data(
                 event["is_example"] = True
             history["events"].append(event)
         write_json(history_path, history)
-        response.update({"applied": True, "stats": stats, "total_after": len(merged)})
+        # 导入时已带评分的记录，视为「已问过反馈」，不再出现在待跟进列表。
+        profile_path = data_dir / "user_profile.json"
+        profile = read_json(profile_path)
+        prompted = [str(value) for value in profile.get("feedback_prompted_item_ids", [])]
+        for item in merged:
+            if item.get("status") != "watched" or item.get("is_example"):
+                continue
+            if item.get("user_rating") is None and item.get("work_rating") is None:
+                continue
+            if item["id"] not in prompted:
+                prompted.append(item["id"])
+        profile["feedback_prompted_item_ids"] = prompted
+        write_json(profile_path, profile)
+        profile_refresh = refresh_profile_from_watchlist(data_dir)
+        response.update({
+            "applied": True,
+            "stats": stats,
+            "total_after": len(merged),
+            "profile_refresh": profile_refresh,
+        })
     return response
 
 
@@ -1942,6 +2278,8 @@ def build_parser() -> argparse.ArgumentParser:
     profile = commands.add_parser("profile", help="Update profile fields")
     profile.add_argument("--set", action="append", default=[], required=True, dest="assignments")
 
+    refresh_profile = commands.add_parser("refresh-profile", help="Recompute profile from all watched records")
+
     rank = commands.add_parser("rank", help="Rank a JSON array of candidate titles")
     rank.add_argument("--candidates", type=Path, required=True)
     rank.add_argument("--limit", type=int, default=3)
@@ -2062,6 +2400,8 @@ def main(argv: list[str] | None = None) -> int:
             ))
         elif args.command == "profile":
             emit(update_profile(data_dir, parse_assignments(args.assignments)))
+        elif args.command == "refresh-profile":
+            emit(refresh_profile_from_watchlist(data_dir))
         elif args.command == "rank":
             candidates = read_json(args.candidates)
             if not isinstance(candidates, list):

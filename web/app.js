@@ -377,13 +377,7 @@
     const genreRows = stats.topGenres.length ? stats.topGenres.map(function (entry) { return '<div class="bar-row"><span>' + escapeHtml(entry[0]) + '</span><span class="bar-track"><span style="width:' + Math.round(entry[1] / maxGenre * 100) + '%"></span></span><b>' + entry[1] + "</b></div>"; }).join("") : '<p class="insight-note">示例记录不会计入正式统计。录入真实观影后，这里会出现类型分布。</p>';
     const typeLabels = Object.keys(stats.typeCounts || {}).sort(function (a, b) { return stats.typeCounts[b] - stats.typeCounts[a] || a.localeCompare(b, "zh-CN"); });
     const typeRows = typeLabels.length ? typeLabels.map(function (type) { return '<span class="tag">' + escapeHtml(Core.displayTerm(Core.TYPE_LABELS[type] || type)) + ' ' + stats.typeCounts[type] + '</span>'; }).join("") : '<span class="choice-empty">暂无真实完成记录</span>';
-    const profile = data.profile || {};
-    const profileBits = [
-      (profile.preferred_genres || []).length ? "偏好：" + Core.displayTerms(profile.preferred_genres).slice(0, 4).join("、") : "偏好类型待补充",
-      (profile.preferred_languages || []).length ? "语言：" + Core.displayTerms(profile.preferred_languages).slice(0, 3).join("、") : "",
-      profile.subtitle_mode && profile.subtitle_mode !== "any" ? "字幕场景：" + Core.displayTerm(profile.subtitle_mode) : ""
-    ].filter(Boolean).join(" · ");
-    elements.insights.innerHTML = '<article class="insight-card"><h3>内容类型与题材</h3><div class="tag-row">' + typeRows + '</div>' + genreRows + '</article><article class="insight-card"><h3>累计时长</h3><strong class="insight-number">' + Math.round(stats.minutes / 60) + '</strong><p>小时 · ' + stats.watched + ' 部真实完成记录</p></article><article class="insight-card"><h3>画像摘要</h3><p class="insight-copy">' + escapeHtml(profileBits || "还没有真实画像；先记录几部看过的，再让 AI 问几个轻量问题。") + '</p><p class="insight-copy">默认“最爱清单”显示 9 分以上作品，已弃视图显示状态为已弃的记录。</p></article>';
+    elements.insights.innerHTML = '<article class="insight-card"><h3>内容类型与题材</h3><div class="tag-row">' + typeRows + '</div>' + genreRows + '</article><article class="insight-card"><h3>累计时长</h3><strong class="insight-number">' + Math.round(stats.minutes / 60) + '</strong><p>小时 · ' + stats.watched + ' 部真实完成记录</p></article>';
     renderAudit();
   }
 
@@ -398,7 +392,11 @@
       (profile.avoided_genres || []).length ? "避开 " + profile.avoided_genres.join("、") : "暂无长期禁区",
       profile.narrative_pace ? "节奏 " + profile.narrative_pace : ""
     ].filter(Boolean).join(" · ") : "尚未建立真实画像；当前示例偏好不会用于正式推荐。";
-    const evidenceRows = evidence.slice(-3).reverse().map(function (event) { return '<li><strong>' + escapeHtml(event.signal) + '</strong><span>' + escapeHtml(event.reason || event.source || "对话记录") + (event.confirmed ? " · 已确认" : " · 待校准") + '</span></li>'; }).join("");
+    const evidenceRows = evidence.length
+      ? evidence.slice(-3).reverse().map(function (event) { return '<li><strong>' + escapeHtml(event.signal) + '</strong><span>' + escapeHtml(event.reason || event.source || "对话记录") + (event.confirmed ? " · 已确认" : " · 待校准") + '</span></li>'; }).join("")
+      : ((profile.preferred_genres || []).length
+          ? '<li><strong>' + escapeHtml(profile.preferred_genres.slice(0, 5).join("、")) + '</strong><span>由 ' + escapeHtml(String(profile.ratings_count || 0)) + ' 部已看记录的评分推导</span></li>'
+          : "");
     const pendingRows = pending.slice(0, 3).map(function (event) { return '<li><strong>' + escapeHtml(event.title || "未命名作品") + '</strong><span>可在下次对话自然询问一次观看感受</span></li>'; }).join("");
     elements.audit.innerHTML = '<div class="audit-heading"><div><span class="section-kicker">画像与反馈</span><h3>系统目前怎样理解你</h3></div><button class="quiet-button" id="editProfileButton" type="button">修正画像</button></div><p class="audit-summary">' + escapeHtml(preferenceText) + '</p><div class="audit-columns"><div><h4>偏好依据</h4><ul>' + (evidenceRows || '<li><span>还没有真实偏好证据。示例数据不计入。</span></li>') + '</ul></div><div><h4>待跟进反馈</h4><ul>' + (pendingRows || '<li><span>没有需要追问的真实观看记录。</span></li>') + '</ul></div></div>';
   }
@@ -820,6 +818,10 @@
   function bindEvents() {
     [elements.search, elements.status, elements.type, elements.period, elements.rating, elements.sort].forEach(function (input) { input.addEventListener("input", renderLibrary); input.addEventListener("change", renderLibrary); });
     document.addEventListener("click", function (event) {
+      // 点击详情弹窗外的遮罩区域也能关闭（仅详情态；编辑态不关，避免误丢输入）。
+      if (event.target && event.target.tagName === "DIALOG" && event.target.id === "detailDialog" && elements.editView.hidden) {
+        closeDialog(elements.detailDialog); return;
+      }
       const activeInline = document.activeElement && document.activeElement.closest ? document.activeElement.closest(".inline-edit-form") : null;
       if (activeInline && !activeInline.contains(event.target)) saveInline(activeInline);
       const target = event.target.closest("button, article"); if (!target) return;

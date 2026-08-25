@@ -209,8 +209,8 @@ class DataDirTest(unittest.TestCase):
         self.run_cli("init")
         source = self.data_dir / "incoming.json"
         write(source, {"items": [{"id": "m1", "title": "测试电影", "status": "want", "content_type": "movie", "added_date": "2026-08-21"}]})
-        original = fc.lookup_online_metadata
-        fc.lookup_online_metadata = lambda title, year=None: {
+        original = fc.lookup_douban_metadata
+        fc.lookup_douban_metadata = lambda title, year=None: {
             "synopsis": "一部用于测试的电影简介",
             "genres": ["剧情"],
             "director": "测试导演",
@@ -220,8 +220,7 @@ class DataDirTest(unittest.TestCase):
         try:
             result = fc.import_data(self.data_dir, source, "skip", apply_changes=True)
         finally:
-            fc.lookup_online_metadata = original
-            fc.lookup_online_metadata.cache_clear()
+            fc.lookup_douban_metadata = original
         self.assertTrue(result["applied"])
         self.assertEqual(result["metadata_enriched_count"], 1)
         item = fc.read_json(self.data_dir / "watchlist.json")["items"][0]
@@ -233,13 +232,12 @@ class DataDirTest(unittest.TestCase):
         self.run_cli("init")
         source = self.data_dir / "incoming.json"
         write(source, {"items": [{"id": "m1", "title": "不补全电影", "status": "want", "content_type": "movie", "added_date": "2026-08-21"}]})
-        original = fc.lookup_online_metadata
-        fc.lookup_online_metadata = lambda title, year=None: {"synopsis": "不应该出现"}
+        original = fc.lookup_douban_metadata
+        fc.lookup_douban_metadata = lambda title, year=None: {"synopsis": "不应该出现"}
         try:
             result = fc.import_data(self.data_dir, source, "skip", apply_changes=True, enrich_metadata=False)
         finally:
-            fc.lookup_online_metadata = original
-            fc.lookup_online_metadata.cache_clear()
+            fc.lookup_douban_metadata = original
         self.assertEqual(result["metadata_enriched_count"], 0)
         item = fc.read_json(self.data_dir / "watchlist.json")["items"][0]
         self.assertEqual(item.get("synopsis", ""), "")
@@ -250,8 +248,8 @@ class DataDirTest(unittest.TestCase):
             "schema_version": 1,
             "items": [{"id": "m1", "title": "待补全电影", "content_type": "movie", "status": "want", "added_date": "2026-08-21"}],
         })
-        original = fc.lookup_online_metadata
-        fc.lookup_online_metadata = lambda title, year=None: {
+        original = fc.lookup_douban_metadata
+        fc.lookup_douban_metadata = lambda title, year=None: {
             "synopsis": "自动补全简介",
             "genres": ["剧情"],
             "director": "自动导演",
@@ -261,8 +259,7 @@ class DataDirTest(unittest.TestCase):
         try:
             self.assertEqual(self.run_cli("validate"), 0)
         finally:
-            fc.lookup_online_metadata = original
-            fc.lookup_online_metadata.cache_clear()
+            fc.lookup_douban_metadata = original
         item = fc.read_json(self.data_dir / "watchlist.json")["items"][0]
         self.assertEqual(item["synopsis"], "自动补全简介")
         self.assertEqual(item["director"], "自动导演")
@@ -280,14 +277,13 @@ class DataDirTest(unittest.TestCase):
 
     def test_candidate_pool_does_not_enter_watchlist_until_adopted(self) -> None:
         self.run_cli("init")
-        original = fc.lookup_online_metadata
-        fc.lookup_online_metadata = lambda title, year=None: {"genres": ["剧情"], "language": "中文"}
+        original = fc.lookup_douban_metadata
+        fc.lookup_douban_metadata = lambda title, year=None: {"genres": ["剧情"], "language": "中文"}
         try:
             preview = fc.merge_candidate_pool(self.data_dir, [{"title": "候选电影"}], apply_changes=False)
             applied = fc.merge_candidate_pool(self.data_dir, [{"title": "候选电影"}], apply_changes=True)
         finally:
-            fc.lookup_online_metadata = original
-            fc.lookup_online_metadata.cache_clear()
+            fc.lookup_douban_metadata = original
         self.assertFalse(preview["applied"])
         self.assertEqual(applied["added"], 1)
         self.assertEqual(fc.read_json(self.data_dir / "watchlist.json")["items"], [])
