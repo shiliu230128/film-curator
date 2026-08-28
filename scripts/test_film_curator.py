@@ -104,9 +104,14 @@ class TranslationTest(unittest.TestCase):
 class SetAssignmentTest(unittest.TestCase):
     def test_chinese_and_english_assignments_match(self) -> None:
         chinese = fc.parse_assignments(["状态=已看", "我的评分=8.5", "计划周期=本月"])
-        english = fc.parse_assignments(["status=watched", "user_rating=8.5", "plan_period=month"])
+        english = fc.parse_assignments(["status=watched", "work_rating=8.5", "plan_period=month"])
         self.assertEqual(chinese, english)
         self.assertEqual(chinese["status"], "watched")
+
+    def test_legacy_rating_names_map_to_work_rating(self) -> None:
+        """旧文件写「我的评分」(user_rating)、中间版本写「作品评价」，都读进 work_rating。"""
+        for legacy in ("user_rating=8.5", "作品评价=8.5"):
+            self.assertEqual(fc.parse_assignments([legacy]), {"work_rating": 8.5})
 
 
 class DataDirTest(unittest.TestCase):
@@ -203,7 +208,7 @@ class DataDirTest(unittest.TestCase):
         fc.validate_item(item)
         with self.assertRaises(fc.FilmCuratorError) as caught:
             fc.validate_item({**item, "work_rating": 11})
-        self.assertIn("作品评价", str(caught.exception))
+        self.assertIn("我的评分", str(caught.exception))
 
     def test_import_enriches_missing_metadata_without_real_network(self) -> None:
         self.run_cli("init")

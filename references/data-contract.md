@@ -16,7 +16,11 @@
 
 必要字段：`id`、`title`、`content_type`、`status`、`added_date`。
 
-`content_type` 只能是 `movie`、`series`、`documentary`、`animation`、`short`。`status` 只能是 `want`、`watching`、`watched`、`dropped`。`plan_period` 为空表示不在计划中，也可以是 `week`、`month`、`season`。`douban_rating`、`user_rating`、`work_rating` 和 `fit_rating` 都是 0-10 的数字；前者是豆瓣网络评分，`work_rating` 是作品评价，`fit_rating` 是当时适配度。新流程优先记录后两个字段，旧的 `user_rating` 保持兼容。
+`content_type` 只能是 `movie`、`series`、`documentary`、`animation`、`short`。`status` 只能是 `want`、`watching`、`watched`、`dropped`。`plan_period` 为空表示不在计划中，也可以是 `week`、`month`、`season`。
+
+评分有两个字段，都是 0-10 的数字。`douban_rating` 是豆瓣网络评分。`work_rating` 是用户自己给的分，在数据文件和网页上都叫「我的评分」。`fit_rating` 是当时适配度，可选，只在「片子好但我那天状态不对」时才填——填了推荐就不会把那次的低体验学成用户不喜欢这个类型。
+
+历史上还有一个 `user_rating`（也叫「我的评分」），与 `work_rating`（当时叫「作品评价」）长期同值，区分只存在于规则里，从未产生过不同的数据。现在合并为 `work_rating` 一个字段。读取时 `user_rating`、`作品评价`、`我的评分` 三种写法都译到 `work_rating`，所以旧文件和旧表格照样能导入；写出时只写「我的评分」。
 
 基础信息可使用 `title_en`、`year`、`director`、`actors`、`country_region`、`language`、`duration_min`、`episode_count`、`release_date`、`genres`、`poster_url`。计划可使用 `watch_episodes` 和 `watch_duration_min` 表示剧集本次观看集数与预计时长。用户信息可使用 `favorite`、`priority`、`tags`、`moods`、`synopsis`、`recommend_reason`、`user_comment`、`watched_date`。
 

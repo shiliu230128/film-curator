@@ -83,8 +83,7 @@
     watch_duration_min: "本次预计时长",
     release_date: "上映日期",
     douban_rating: "豆瓣评分",
-    user_rating: "我的评分",
-    work_rating: "作品评价",
+    work_rating: "我的评分",
     fit_rating: "当时适配度",
     status: "状态",
     favorite: "最爱",
@@ -155,7 +154,11 @@
     "时长（分钟）": "duration_min",
     "标签": "tags",
     "视图ID": "id",
-    "视图名称": "name"
+    "视图名称": "name",
+    // 评分曾经分成「我的评分」(user_rating) 和「作品评价」(work_rating) 两栏，
+    // 实际两者始终同值，现在合成一个 work_rating，对外仍叫「我的评分」。
+    "user_rating": "work_rating",
+    "作品评价": "work_rating"
   };
 
   const SUBTREE_FIELD_OVERRIDES = {
@@ -316,7 +319,6 @@
       priority: 0,
       added_date: "",
       douban_rating: null,
-      user_rating: null,
       work_rating: null,
       fit_rating: null,
       user_comment: ""
@@ -493,8 +495,6 @@
   }
 
   function displayRating(item) {
-    const userRating = Number(item && item.user_rating);
-    if (Number.isFinite(userRating)) return userRating;
     const workRating = Number(item && item.work_rating);
     if (Number.isFinite(workRating)) return workRating;
     return 0;
@@ -510,7 +510,7 @@
     const strategies = {
       priority_desc: function (a, b) { return number(b.priority, 0) - number(a.priority, 0); },
       added_date_desc: function (a, b) { return text(b.added_date).localeCompare(text(a.added_date)); },
-      user_rating_desc: function (a, b) { return number((b.work_rating ?? b.user_rating), -1) - number((a.work_rating ?? a.user_rating), -1); },
+      user_rating_desc: function (a, b) { return number(b.work_rating, -1) - number(a.work_rating, -1); },
       douban_rating_desc: function (a, b) { return number(b.douban_rating, -1) - number(a.douban_rating, -1); },
       year_desc: function (a, b) { return number(b.year, 0) - number(a.year, 0); },
       title_asc: function (a, b) { return text(a.title).localeCompare(text(b.title), "zh-CN"); }
@@ -522,7 +522,7 @@
   function computeStats(items) {
     const watched = (items || []).filter(function (item) { return item.status === "watched"; });
     const ratings = watched.map(function (item) {
-      const score = item.work_rating != null ? Number(item.work_rating) : Number(item.user_rating);
+      const score = Number(item.work_rating);
       return Number.isFinite(score) ? score : NaN;
     }).filter(Number.isFinite);
     const genreCounts = {};

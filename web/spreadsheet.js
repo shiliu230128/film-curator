@@ -9,8 +9,8 @@
     ["id", "记录 ID"], ["title", "片名"], ["title_en", "英文名"], ["year", "年份"], ["director", "导演"],
     ["actors", "主演"], ["country_region", "国家/地区"], ["language", "语言"], ["genres", "类型"],
     ["content_type", "内容类型"], ["duration_min", "时长（分钟）"], ["episode_count", "集数"],
-    ["release_date", "上映日期"], ["douban_rating", "豆瓣评分"], ["user_rating", "我的评分"],
-    ["work_rating", "作品评价"], ["fit_rating", "当时适配度"],
+    ["release_date", "上映日期"], ["douban_rating", "豆瓣评分"],
+    ["work_rating", "我的评分"], ["fit_rating", "当时适配度"],
     ["status", "状态"], ["favorite", "最爱"], ["plan_period", "计划周期"], ["priority", "优先级"],
     ["tags", "自定义标签"], ["moods", "情绪"], ["synopsis", "简介"], ["recommend_reason", "推荐理由"],
     ["user_comment", "我的短评"], ["poster_url", "图片地址"], ["source", "来源"], ["added_date", "加入日期"],
@@ -25,7 +25,7 @@
     "类型": "genres", "类型标签": "genres", "genres": "genres", "内容类型": "content_type", "content_type": "content_type",
     "时长（分钟）": "duration_min", "时长分钟": "duration_min", "duration_min": "duration_min", "集数": "episode_count", "episode_count": "episode_count",
     "上映日期": "release_date", "release_date": "release_date", "豆瓣评分": "douban_rating", "douban_rating": "douban_rating",
-    "我的评分": "user_rating", "user_rating": "user_rating", "作品评价": "work_rating", "work_rating": "work_rating",
+    "我的评分": "work_rating", "work_rating": "work_rating", "作品评价": "work_rating", "user_rating": "work_rating",
     "当时适配度": "fit_rating", "fit_rating": "fit_rating", "状态": "status", "status": "status", "最爱": "favorite", "favorite": "favorite",
     "计划周期": "plan_period", "plan_period": "plan_period", "优先级": "priority", "priority": "priority", "自定义标签": "tags", "标签": "tags", "tags": "tags",
     "情绪": "moods", "moods": "moods", "简介": "synopsis", "synopsis": "synopsis", "推荐理由": "recommend_reason", "recommend_reason": "recommend_reason",
@@ -97,7 +97,7 @@
     if (["genres", "tags", "moods", "actors"].includes(key)) return value.split(/[,，、;；|]/).map(function (part) { return part.trim(); }).filter(Boolean);
     if (key === "favorite") return ["是", "true", "1", "yes", "y"].includes(value.toLocaleLowerCase());
     if (["year", "duration_min", "episode_count", "priority"].includes(key)) return Number(value) || null;
-    if (["douban_rating", "user_rating", "work_rating", "fit_rating"].includes(key)) return Number(value) || null;
+    if (["douban_rating", "work_rating", "fit_rating"].includes(key)) return Number(value) || null;
     return value;
   }
 
@@ -126,7 +126,7 @@
         const text = String(value == null ? "" : value);
         const ref = columnName(columnIndex) + (rowIndex + 1);
         if (rowIndex === 0) return '<c r="' + ref + '" t="inlineStr" s="1"><is><t>' + escapeXml(text) + "</t></is></c>";
-        if (["年份", "时长（分钟）", "集数", "豆瓣评分", "我的评分", "作品评价", "当时适配度", "优先级"].includes(LABELS[columnIndex]) && text !== "" && Number.isFinite(Number(text))) return '<c r="' + ref + '"><v>' + Number(text) + "</v></c>";
+        if (["年份", "时长（分钟）", "集数", "豆瓣评分", "我的评分", "当时适配度", "优先级"].includes(LABELS[columnIndex]) && text !== "" && Number.isFinite(Number(text))) return '<c r="' + ref + '"><v>' + Number(text) + "</v></c>";
         return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + escapeXml(text) + "</t></is></c>";
       }).join("");
       return '<row r="' + (rowIndex + 1) + '">' + cells + "</row>";

@@ -77,8 +77,7 @@ FIELD_NAMES: dict[str, str] = {
     "watch_duration_min": "本次预计时长",
     "release_date": "上映日期",
     "douban_rating": "豆瓣评分",
-    "user_rating": "我的评分",
-    "work_rating": "作品评价",
+    "work_rating": "我的评分",
     "fit_rating": "当时适配度",
     "status": "状态",
     "favorite": "最爱",
@@ -184,6 +183,11 @@ FIELD_NAME_ALIASES: dict[str, str] = {
     "标签": "tags",
     "视图ID": "id",
     "视图名称": "name",
+    # 评分字段曾经一分为二：旧的 user_rating（我的评分）和后来的 work_rating（作品评价）。
+    # 实际使用中两者始终同值，当时适配度从未被填过，区分只存在于规则里。现在合成一个
+    # work_rating，对外仍叫「我的评分」。旧文件和旧表格里的两种写法都读进这一个字段。
+    "user_rating": "work_rating",
+    "作品评价": "work_rating",
 }
 
 VALUE_ALIASES: dict[str, dict[str, str]] = {
@@ -1041,7 +1045,7 @@ def validate_item(item: dict[str, Any]) -> None:
         raise FilmCuratorError(f"Unsupported {field_label('content_type')}: {value_label('content_type', item['content_type'])}")
     if item["status"] not in ALL_STATUSES:
         raise FilmCuratorError(f"Unsupported {field_label('status')}: {value_label('status', item['status'])}")
-    for field in ("user_rating", "work_rating", "fit_rating", "douban_rating"):
+    for field in ("work_rating", "fit_rating", "douban_rating"):
         rating = item.get(field)
         if rating is not None and not 0 <= float(rating) <= 10:
             raise FilmCuratorError(f"{field_label(field)} must be between 0 and 10")
@@ -1082,7 +1086,8 @@ def add_item(data_dir: Path, values: dict[str, Any]) -> dict[str, Any]:
         "status": values.get("status") or "want",
         "favorite": bool(values.get("favorite", False)),
         "douban_rating": values.get("douban_rating"),
-        "user_rating": values.get("user_rating"),
+        "work_rating": values.get("work_rating"),
+        "fit_rating": values.get("fit_rating"),
         "user_comment": values.get("user_comment") or "",
         "tags": values.get("tags") or [],
         "moods": values.get("moods") or [],
@@ -1175,9 +1180,7 @@ def refresh_profile_from_watchlist(data_dir: Path) -> dict[str, Any]:
             continue
         if item.get("status") != "watched":
             continue
-        rating = item.get("user_rating")
-        if rating is None:
-            rating = item.get("work_rating")
+        rating = item.get("work_rating")
         if rating is None:
             continue
         learn_from_rating(profile, item, float(rating))
@@ -1284,20 +1287,20 @@ def complete_item(
     feedback_reason: str = "",
     session_id: str = "",
 ) -> dict[str, Any]:
+    # --rating 和 --work-rating 是同一个分数的两种写法（前者是旧参数名），合并成 work_rating。
     if rating is not None and not 0 <= rating <= 10:
         raise FilmCuratorError("rating must be between 0 and 10")
     for name, value in (("work_rating", work_rating), ("fit_rating", fit_rating)):
         if value is not None and not 0 <= value <= 10:
             raise FilmCuratorError(f"{name} must be between 0 and 10")
-    if rating is None and work_rating is not None:
-        rating = work_rating
+    if work_rating is None and rating is not None:
+        work_rating = rating
     item = update_item(
         data_dir,
         item_id,
         {
             "status": "watched",
             "watched_date": watched_date,
-            "user_rating": rating,
             "user_comment": comment,
             "work_rating": work_rating,
             "fit_rating": fit_rating,
@@ -1317,7 +1320,6 @@ def complete_item(
             "item_id": item_id,
             "title": item["title"],
             "watched_date": watched_date,
-            "rating": rating,
             "work_rating": work_rating,
             "fit_rating": fit_rating,
             "comment": comment,
@@ -1327,7 +1329,7 @@ def complete_item(
     )
     write_json(history_path, history)
 
-    if rating is not None:
+    if work_rating is not None:
         refresh_profile_from_watchlist(data_dir)
 
     log_path = data_dir / "recommend_log.json"
@@ -2028,7 +2030,7 @@ def import_data(
                 "item_id": item["id"],
                 "title": item["title"],
                 "watched_date": item.get("watched_date") or today_iso(),
-                "rating": item.get("user_rating"),
+                "work_rating": item.get("work_rating"),
                 "comment": item.get("user_comment") or "",
             }
             if item.get("is_example"):
@@ -2042,7 +2044,7 @@ def import_data(
         for item in merged:
             if item.get("status") != "watched" or item.get("is_example"):
                 continue
-            if item.get("user_rating") is None and item.get("work_rating") is None:
+            if item.get("work_rating") is None:
                 continue
             if item["id"] not in prompted:
                 prompted.append(item["id"])

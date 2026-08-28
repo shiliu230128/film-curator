@@ -312,10 +312,9 @@
 
   function ratingMarkup(item) {
     const douban = item.douban_rating == null ? "暂无" : Number(item.douban_rating).toFixed(1);
-    const mine = item.user_rating == null ? "未评分" : Number(item.user_rating).toFixed(1);
-    const work = item.work_rating == null ? "未填写" : Number(item.work_rating).toFixed(1);
+    const mine = item.work_rating == null ? "未评分" : Number(item.work_rating).toFixed(1);
     const fit = item.fit_rating == null ? "未填写" : Number(item.fit_rating).toFixed(1);
-    return '<div class="rating-pair"><span>作品评价 <b>' + escapeHtml(work) + '</b></span><span>我的评分 <b>' + escapeHtml(mine) + '</b></span><span>豆瓣 <b>' + escapeHtml(douban) + '</b></span><span class="quiet-metric">适配度（可选） <b>' + escapeHtml(fit) + '</b></span></div>';
+    return '<div class="rating-pair"><span>我的评分 <b>' + escapeHtml(mine) + '</b></span><span>豆瓣 <b>' + escapeHtml(douban) + '</b></span><span class="quiet-metric">当时适配度（可选） <b>' + escapeHtml(fit) + '</b></span></div>';
   }
 
   function planCardMarkup(item) {
@@ -509,13 +508,12 @@
 
   function detailMarkup(item) {
     const plan = { week: "本周", month: "本月", season: "本季" }[periodValue(item.plan_period)] || "未加入计划";
-    const mine = item.user_rating == null ? "未评分" : Number(item.user_rating).toFixed(1) + " / 10";
-    const work = item.work_rating == null ? "未填写" : Number(item.work_rating).toFixed(1) + " / 10";
+    const mine = item.work_rating == null ? "未评分" : Number(item.work_rating).toFixed(1) + " / 10";
     const fit = item.fit_rating == null ? "未填写" : Number(item.fit_rating).toFixed(1) + " / 10";
     const tags = Core.displayTerms(item.tags || []).join("、");
     const genres = Core.displayTerms(item.genres || []).join("、");
     const fixedMeta = [item.year, Core.TYPE_LABELS[item.content_type] || item.content_type, item.director, item.duration_min ? Core.formatDuration(item.duration_min) : "", item.douban_rating == null ? "" : "豆瓣 " + Number(item.douban_rating).toFixed(1), item.country_region, item.language].filter(Boolean).join(" · ");
-    return '<div class="detail-summary">' + posterMarkup(item, "detail-thumb") + '<div class="detail-summary-copy"><p class="detail-subtitle">' + escapeHtml(item.title_en || "") + '</p><p class="compact-meta">' + escapeHtml(fixedMeta || "基础信息未填写") + '</p><button class="meta-edit-button" type="button" data-detail-action="edit">修改基础信息</button><div class="detail-status">' + (item.is_example ? '<span class="tag example-tag">示例</span>' : "") + '</div></div></div><div class="editable-grid">' + editableField("状态", "status", item.status, Core.STATUS_LABELS[item.status]) + editableField("计划周期", "plan_period", item.plan_period, plan) + editableField("我的评分", "user_rating", item.user_rating, mine) + editableField("作品评价", "work_rating", item.work_rating, work) + choiceFieldMarkup("影片类型", "genres", item.genres) + choiceFieldMarkup("自定义标签", "tags", item.tags) + editableField("简介", "synopsis", item.synopsis, item.synopsis) + editableField("为什么推荐", "recommend_reason", item.recommend_reason, item.recommend_reason) + editableField("我的短评", "user_comment", item.user_comment, item.user_comment) + '<div class="quiet-note">适配度（可选）：' + escapeHtml(fit) + '</div></div>';
+    return '<div class="detail-summary">' + posterMarkup(item, "detail-thumb") + '<div class="detail-summary-copy"><p class="detail-subtitle">' + escapeHtml(item.title_en || "") + '</p><p class="compact-meta">' + escapeHtml(fixedMeta || "基础信息未填写") + '</p><button class="meta-edit-button" type="button" data-detail-action="edit">修改基础信息</button><div class="detail-status">' + (item.is_example ? '<span class="tag example-tag">示例</span>' : "") + '</div></div></div><div class="editable-grid">' + editableField("状态", "status", item.status, Core.STATUS_LABELS[item.status]) + editableField("计划周期", "plan_period", item.plan_period, plan) + editableField("我的评分", "work_rating", item.work_rating, mine) + editableField("当时适配度", "fit_rating", item.fit_rating, fit) + choiceFieldMarkup("影片类型", "genres", item.genres) + choiceFieldMarkup("自定义标签", "tags", item.tags) + editableField("简介", "synopsis", item.synopsis, item.synopsis) + editableField("为什么推荐", "recommend_reason", item.recommend_reason, item.recommend_reason) + editableField("我的短评", "user_comment", item.user_comment, item.user_comment) + '<div class="quiet-note">当时适配度是可选的：片子好但你那天状态不对时才填，填了推荐就不会把那次的低体验算成你不喜欢这一类。</div></div>';
   }
 
   function openDetail(id) {
@@ -530,7 +528,7 @@
     if (field === "status") return '<select name="value">' + Object.keys(Core.STATUS_LABELS).map(function (key) { return '<option value="' + key + '"' + (item.status === key ? " selected" : "") + '>' + Core.STATUS_LABELS[key] + "</option>"; }).join("") + "</select>";
     if (field === "plan_period") return '<select name="value"><option value="">不加入计划</option>' + [["week", "本周"], ["month", "本月"], ["season", "本季"]].map(function (entry) { return '<option value="' + entry[0] + '"' + (periodValue(item.plan_period) === entry[0] ? " selected" : "") + '>' + entry[1] + "</option>"; }).join("") + "</select>";
     if (field === "favorite") return '<label class="inline-check"><input name="value" type="checkbox"' + (item.favorite ? " checked" : "") + "><span>加入最爱清单</span></label>";
-    if (["user_rating", "work_rating", "fit_rating"].includes(field)) return '<input name="value" type="number" min="0" max="10" step="0.5" value="' + escapeHtml(item[field] == null ? "" : item[field]) + '" placeholder="0-10">';
+    if (["work_rating", "fit_rating"].includes(field)) return '<input name="value" type="number" min="0" max="10" step="0.5" value="' + escapeHtml(item[field] == null ? "" : item[field]) + '" placeholder="0-10">';
     if (["genres", "tags"].includes(field)) return '<input name="value" value="' + escapeHtml((item[field] || []).join("、")) + '" placeholder="用顿号分隔">';
     return '<textarea name="value" rows="4">' + escapeHtml(item[field] || "") + "</textarea>";
   }
@@ -555,7 +553,7 @@
     const input = form.elements.value;
     let value = input.type === "checkbox" ? input.checked : input.value;
     if (["genres", "tags"].includes(field)) value = splitCsv(value);
-    if (["user_rating", "work_rating", "fit_rating"].includes(field)) value = value === "" ? null : Number(value);
+    if (["work_rating", "fit_rating"].includes(field)) value = value === "" ? null : Number(value);
     item[field] = value;
     if (field === "plan_period") item.plan_period = value;
     persist("已更新“" + elements.detailTitle.textContent + "”的" + form.querySelector("label").textContent);
@@ -616,7 +614,7 @@
     const form = elements.editView;
     const value = function (name, fallback) { const current = item && item[name]; return current == null ? (fallback == null ? "" : fallback) : current; };
     field(form, "id").value = isNew ? "" : value("id", "");
-    ["title", "title_en", "year", "director", "duration_min", "country_region", "language", "episode_count", "watch_episodes", "watch_duration_min", "release_date", "douban_rating", "user_rating", "work_rating", "fit_rating", "priority", "synopsis", "recommend_reason", "user_comment"].forEach(function (name) { field(form, name).value = value(name, ""); });
+    ["title", "title_en", "year", "director", "duration_min", "country_region", "language", "episode_count", "watch_episodes", "watch_duration_min", "release_date", "douban_rating", "work_rating", "fit_rating", "priority", "synopsis", "recommend_reason", "user_comment"].forEach(function (name) { field(form, name).value = value(name, ""); });
     field(form, "actors").value = (item && item.actors || []).join("、"); field(form, "genres").value = (item && item.genres || []).join("、"); field(form, "tags").value = (item && item.tags || []).join("、");
     field(form, "favorite").checked = Boolean(item && item.favorite); field(form, "status").value = value("status", "want"); field(form, "plan_period").value = periodValue(period || value("plan_period", "")); field(form, "poster_file").value = "";
   }
@@ -645,7 +643,7 @@
       actors: splitCsv(field(form, "actors").value), country_region: field(form, "country_region").value.trim(), language: field(form, "language").value.trim(),
       content_type: field(form, "content_type").value, duration_min: field(form, "duration_min").value ? Number(field(form, "duration_min").value) : null,
       episode_count: field(form, "episode_count").value ? Number(field(form, "episode_count").value) : null, watch_episodes: field(form, "watch_episodes").value ? Number(field(form, "watch_episodes").value) : null, watch_duration_min: field(form, "watch_duration_min").value ? Number(field(form, "watch_duration_min").value) : null, release_date: field(form, "release_date").value,
-      douban_rating: field(form, "douban_rating").value ? Number(field(form, "douban_rating").value) : null, user_rating: field(form, "user_rating").value ? Number(field(form, "user_rating").value) : null, work_rating: field(form, "work_rating").value ? Number(field(form, "work_rating").value) : null, fit_rating: field(form, "fit_rating").value ? Number(field(form, "fit_rating").value) : null,
+      douban_rating: field(form, "douban_rating").value ? Number(field(form, "douban_rating").value) : null, work_rating: field(form, "work_rating").value ? Number(field(form, "work_rating").value) : null, fit_rating: field(form, "fit_rating").value ? Number(field(form, "fit_rating").value) : null,
       status: field(form, "status").value, plan_period: field(form, "plan_period").value, favorite: field(form, "favorite").checked,
       priority: field(form, "priority").value ? Number(field(form, "priority").value) : 0, genres: splitCsv(field(form, "genres").value), tags: splitCsv(field(form, "tags").value),
       synopsis: field(form, "synopsis").value.trim(), recommend_reason: field(form, "recommend_reason").value.trim(), user_comment: field(form, "user_comment").value.trim(),
